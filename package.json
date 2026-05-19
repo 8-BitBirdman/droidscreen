@@ -46,6 +46,7 @@
 		"fix-path": "^3.0.0",
 		"localstorage": "^1.0.1",
 		"normalize.css": "^8.0.1",
+		"qrcode": "^1.5.4",
 		"vue": "^2.5.16",
 		"vue-electron": "^1.0.6",
 		"vue-i18n": "^8.14.0",

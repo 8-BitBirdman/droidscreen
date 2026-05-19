@@ -53,6 +53,24 @@ ipcRenderer.send('connectDirect', { addr })
 // addr: 'host:port' (validated regex)
 ```
 
+### `qrPairStart`
+Start polling for a phone that scanned a QR pairing code. Auto-runs `adb pair` on discovery.
+
+```js
+ipcRenderer.send('qrPairStart', { service, password })
+// service: random alphanumeric 1-32 chars (matches mDNS instance name from QR scan)
+// password: random alphanumeric 6-32 chars (encoded in QR, used as pairing secret)
+// QR payload format: `WIFI:T:ADB;S:<service>;P:<password>;;`
+// 120s timeout. Cancel with qrPairStop.
+```
+
+### `qrPairStop`
+Cancel an in-flight QR pairing poll.
+
+```js
+ipcRenderer.send('qrPairStop')
+```
+
 ---
 
 ## Main → Renderer
@@ -111,6 +129,14 @@ Result of a direct connect attempt.
 ipcRenderer.on('connectDirect', (event, { success }) => {})
 ```
 
+### `qrPair`
+Result of a QR pairing attempt (success, failure, timeout, or invalid input).
+
+```js
+ipcRenderer.on('qrPair', (event, { success, message }) => {})
+// message: human-readable status ('Paired', 'Pair failed', 'Timeout...', 'Invalid...')
+```
+
 ### `disconnect`
 Result of a disconnect attempt.
 
@@ -128,6 +154,8 @@ All shell-bound inputs from the renderer are validated in main:
 |:------|:------|:------|
 | Device address | `^[0-9a-fA-F.:[\]]+:\d{1,5}$` | Accepts IPv4, IPv6, hostname:port |
 | Pairing code | `^\d{6}$` | Exactly 6 digits |
+| QR service | `^[A-Za-z0-9_-]{1,32}$` | Alphanumeric, dash, underscore |
+| QR password | `length 6-32` | Type-checked string |
 
 Failed validation returns `{ success: false }` without spawning any process.
 

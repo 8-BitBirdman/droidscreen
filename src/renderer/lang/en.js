@@ -175,6 +175,12 @@ export default {
 			confirm: 'Pair',
 			cancel: 'Cancel'
 		},
+		qrButton: 'Pair via QR Code',
+		qrDialog: {
+			title: 'Scan QR Code to Pair',
+			hint: 'On your phone: Wireless Debugging → Pair device with QR code. Then point your camera at the code below.',
+			waiting: 'Waiting for phone to scan...'
+		},
 		pairSuccess: 'Device paired! Connecting...',
 		pairFail: 'Pairing failed. Check the code and try again.',
 		connectSuccess: 'Connected! Device is now available.',

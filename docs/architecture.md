@@ -66,6 +66,8 @@ Browser context with `nodeIntegration: true` (so it can `require` Node modules).
   mdnsDiscover({sender})          // adb mdns services + parse
   pairDevice({sender}, {addr, code})   // adb pair (validated)
   connectDirect({sender}, {addr})       // adb connect (validated)
+  qrPairStart({sender}, {service, password})  // Poll mDNS for QR-scanned phone, auto-pair
+  qrPairStop()                          // Cancel in-flight QR poll
 }
 ```
 

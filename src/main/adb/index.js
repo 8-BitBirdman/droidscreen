@@ -132,6 +132,81 @@ const connectDirect = ({ sender }, { addr }) => {
 	})
 }
 
+// QR pairing: poll `adb mdns services` for our service name, then pair with password
+let _qrPoll = null
+let _qrAbort = { v: false }
+const QR_TIMEOUT_MS = 120000
+const QR_INTERVAL_MS = 1500
+const SERVICE_RE = /^[A-Za-z0-9_-]{1,32}$/
+
+const safeSend = (sender, channel, payload) => {
+	try {
+		if (sender && !sender.isDestroyed()) sender.send(channel, payload)
+	} catch (_) { /* sender gone */ }
+}
+
+const qrPairStart = ({ sender }, { service, password }) => {
+	if (!SERVICE_RE.test(service) || typeof password !== 'string' || password.length < 6 || password.length > 32) {
+		safeSend(sender, 'qrPair', { success: false, message: 'Invalid service/password' })
+		return
+	}
+	qrPairStop()
+	const abort = { v: false }
+	_qrAbort = abort
+	let ticking = false
+	let pairing = false
+	const started = Date.now()
+	const tick = () => {
+		if (abort.v || ticking || pairing) return
+		ticking = true
+		execFile('adb', ['mdns', 'services'], (err, stdout) => {
+			ticking = false
+			if (abort.v) return
+			if (err) {
+				if (Date.now() - started > QR_TIMEOUT_MS) {
+					qrPairStop()
+					safeSend(sender, 'qrPair', { success: false, message: 'Timeout: no device scanned the QR code' })
+				}
+				return
+			}
+			const lines = stdout.split('\n').filter(l => l.includes('_adb-tls-pairing'))
+			for (const line of lines) {
+				const parts = line.trim().split(/\s+/)
+				if (parts.length < 3) continue
+				const instanceName = parts[0]
+				const addr = parts[parts.length - 1]
+				if (instanceName.includes(service)) {
+					if (!ADDR_RE.test(addr)) continue
+					pairing = true
+					qrPairStop()
+					execFile('adb', ['pair', addr, password], (e, so, se) => {
+						pairing = false
+						if (abort.v) return
+						const out = (so + se).toLowerCase()
+						const ok = !e && !out.includes('failed') && !out.includes('error')
+						safeSend(sender, 'qrPair', { success: ok, message: ok ? 'Paired' : 'Pair failed' })
+					})
+					return
+				}
+			}
+			if (Date.now() - started > QR_TIMEOUT_MS) {
+				qrPairStop()
+				safeSend(sender, 'qrPair', { success: false, message: 'Timeout: no device scanned the QR code' })
+			}
+		})
+	}
+	_qrPoll = setInterval(tick, QR_INTERVAL_MS)
+	tick()
+}
+
+const qrPairStop = () => {
+	if (_qrAbort) _qrAbort.v = true
+	if (_qrPoll) {
+		clearInterval(_qrPoll)
+		_qrPoll = null
+	}
+}
+
 export default {
-	connect, disconnect, onDevices, mdnsDiscover, pairDevice, connectDirect
+	connect, disconnect, onDevices, mdnsDiscover, pairDevice, connectDirect, qrPairStart, qrPairStop
 }

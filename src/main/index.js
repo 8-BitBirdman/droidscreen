@@ -60,7 +60,7 @@ function createWindow() {
 
 // Register IPC handlers once (survives page reloads in dev)
 function registerIpcHandlers() {
-	const channels = ['open', 'connect', 'disconnect', 'mdns', 'pair', 'connectDirect']
+	const channels = ['open', 'connect', 'disconnect', 'mdns', 'pair', 'connectDirect', 'qrPairStart', 'qrPairStop']
 	channels.forEach(ch => ipcMain.removeAllListeners(ch))
 	ipcMain.on('open', scrcpy.open)
 	ipcMain.on('connect', adb.connect)
@@ -68,6 +68,8 @@ function registerIpcHandlers() {
 	ipcMain.on('mdns', adb.mdnsDiscover)
 	ipcMain.on('pair', adb.pairDevice)
 	ipcMain.on('connectDirect', adb.connectDirect)
+	ipcMain.on('qrPairStart', adb.qrPairStart)
+	ipcMain.on('qrPairStop', () => adb.qrPairStop())
 }
 
 app.on('ready', () => {

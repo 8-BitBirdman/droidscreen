@@ -33,7 +33,7 @@
 
 ### ⚡ Quick Connect
 One-tap pairing for **Android 11+** wireless debugging.
-Discover devices on your LAN via mDNS, pair with a 6-digit code, mirror in seconds.
+**Scan a QR code** with your phone, or pair with a 6-digit code. Mirror in seconds.
 
 ### 🎨 Native Dark UI
 A clean, modern dark theme with vibrancy effects.
@@ -89,6 +89,17 @@ Or build from source — see [Development](#-development) below.
 ## 📱 Connecting Your Phone
 
 ### ⚡ Wireless (Android 11+) — _Recommended_
+
+**Option A — QR Code (easiest)**
+
+| Step | Action |
+|:----:|:-------|
+| 1 | Phone → **Settings → Developer Options → Wireless debugging → Pair device with QR code** |
+| 2 | Open DroidScreen → click **Pair via QR Code** |
+| 3 | Point your phone's camera at the QR code shown on your Mac |
+| 4 | Done — auto-pairs and the device appears in the list |
+
+**Option B — 6-digit code**
 
 | Step | Action |
 |:----:|:-------|

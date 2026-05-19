@@ -8,15 +8,24 @@
 				<span class="qc-subtitle">{{ $t('quickConnect.subtitle') }}</span>
 			</div>
 
-			<el-button
-				class="qc-scan-btn"
-				:loading="scanning"
-				@click="scanDevices"
-				size="small"
-				round
-			>
-				{{ scanning ? $t('quickConnect.scanning') : $t('quickConnect.scan') }}
-			</el-button>
+			<div class="qc-btn-row">
+				<el-button
+					:loading="scanning"
+					@click="scanDevices"
+					size="small"
+					round
+				>
+					{{ scanning ? $t('quickConnect.scanning') : $t('quickConnect.scan') }}
+				</el-button>
+
+				<el-button
+					@click="openQrDialog"
+					size="small"
+					round
+				>
+					{{ $t('quickConnect.qrButton') }}
+				</el-button>
+			</div>
 
 			<div v-if="scanned && mdnsDevices.length === 0" class="qc-empty">
 				{{ $t('quickConnect.noDevices') }}
@@ -81,6 +90,27 @@
 					:disabled="pairingCode.length < 6"
 					@click="submitPair"
 				>{{ $t('quickConnect.pairDialog.confirm') }}</el-button>
+			</span>
+		</el-dialog>
+
+		<!-- ───────────────── QR PAIR DIALOG ───────────────── -->
+		<el-dialog
+			:title="$t('quickConnect.qrDialog.title')"
+			:visible.sync="qrDialogVisible"
+			width="380px"
+			class="pair-dialog"
+			:append-to-body="true"
+			@close="closeQrDialog"
+		>
+			<p class="pair-hint">{{ $t('quickConnect.qrDialog.hint') }}</p>
+			<div class="qr-wrap">
+				<canvas ref="qrCanvas"></canvas>
+			</div>
+			<p v-if="qrWaiting" class="qr-status">
+				<i class="el-icon-loading"></i> {{ $t('quickConnect.qrDialog.waiting') }}
+			</p>
+			<span slot="footer">
+				<el-button @click="qrDialogVisible = false">{{ $t('quickConnect.pairDialog.cancel') }}</el-button>
 			</span>
 		</el-dialog>
 
@@ -225,6 +255,7 @@
 import EditableCell from '../components/EditableCell'
 import Regular from '@/utils/regular'
 import { ipcRenderer } from 'electron'
+import QRCode from 'qrcode'
 export default {
 	name: 'Devices',
 	data() {
@@ -249,7 +280,12 @@ export default {
 			pairingCode: '',
 			pairing: false,
 			pendingPairDevice: null,
-			connectingSerial: null
+			connectingSerial: null,
+			// QR pairing
+			qrDialogVisible: false,
+			qrWaiting: false,
+			qrService: '',
+			qrPassword: ''
 		}
 	},
 	created() {
@@ -360,11 +396,25 @@ export default {
 				this.$notify.error(this.$t('quickConnect.connectFail'))
 			}
 		})
+
+		ipcRenderer.on('qrPair', (_, { success, message }) => {
+			const wasOpen = this.qrDialogVisible
+			this.qrWaiting = false
+			if (success) {
+				this.$notify.success(this.$t('quickConnect.pairSuccess'))
+				this.qrDialogVisible = false
+				// auto-rescan so device shows up in list
+				setTimeout(() => this.scanDevices(), 800)
+			} else if (wasOpen) {
+				this.$notify.error(message || this.$t('quickConnect.pairFail'))
+			}
+		})
 	},
 	beforeDestroy() {
-		['devices', 'open', 'close', 'error', 'mdns', 'pair', 'connectDirect'].forEach(ch => {
+		['devices', 'open', 'close', 'error', 'mdns', 'pair', 'connectDirect', 'qrPair'].forEach(ch => {
 			ipcRenderer.removeAllListeners(ch)
 		})
+		ipcRenderer.send('qrPairStop')
 	},
 	components: {
 		EditableCell
@@ -427,6 +477,35 @@ export default {
 		quickConnectDevice(device) {
 			this.connectingSerial = device.serial
 			ipcRenderer.send('connectDirect', { addr: device.connectAddr })
+		},
+		openQrDialog() {
+			if (this.qrDialogVisible) return
+			// Generate random service name + password
+			const rand = (len, chars) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+			const alphanum = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+			this.qrService = 'studio-' + rand(8, alphanum)
+			this.qrPassword = rand(12, alphanum)
+			const payload = `WIFI:T:ADB;S:${this.qrService};P:${this.qrPassword};;`
+			this.qrDialogVisible = true
+			this.qrWaiting = true
+			this.$nextTick(() => {
+				QRCode.toCanvas(this.$refs.qrCanvas, payload, {
+					width: 280,
+					margin: 2,
+					color: { dark: '#000000', light: '#ffffff' }
+				}, err => {
+					if (err) {
+						this.$notify.error('QR generation failed')
+						this.qrDialogVisible = false
+						return
+					}
+					ipcRenderer.send('qrPairStart', { service: this.qrService, password: this.qrPassword })
+				})
+			})
+		},
+		closeQrDialog() {
+			this.qrWaiting = false
+			ipcRenderer.send('qrPairStop')
 		},
 		getWirelessDevices(queryString, cb) {
 			const wirelessDevices = this.wirelessDevices
@@ -500,6 +579,14 @@ export default {
 .qc-scan-btn {
 	margin-bottom: 12px;
 }
+.qc-btn-row {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+.qc-btn-row .el-button + .el-button {
+	margin-left: 0;
+}
 .qc-empty {
 	font-size: 12px;
 	color: #666;
@@ -566,6 +653,21 @@ export default {
 	color: #888;
 	margin: 0 0 12px;
 	line-height: 1.5;
+}
+.qr-wrap {
+	display: flex;
+	justify-content: center;
+	background: #fff;
+	padding: 12px;
+	border-radius: 8px;
+	margin: 0 auto;
+	width: fit-content;
+}
+.qr-status {
+	font-size: 12px;
+	color: #888;
+	text-align: center;
+	margin: 12px 0 0;
 }
 /* ── Device table ─────────────────────────── */
 .wrap-button {
