@@ -99,7 +99,7 @@ Or build from source — see [Development](#-development) below.
 | 3 | Point your phone's camera at the QR code shown on your Mac |
 | 4 | Done — auto-pairs and the device appears in the list |
 
-**Option B — 6-digit code**
+**Option B — 6-digit code (auto-discovered)**
 
 | Step | Action |
 |:----:|:-------|
@@ -108,7 +108,18 @@ Or build from source — see [Development](#-development) below.
 | 3 | Tap **Pair**, enter the 6-digit code from your phone |
 | 4 | Done — auto-connects and stays paired |
 
-> 💡 _Same Wi-Fi network required. mDNS doesn't cross subnets._
+**Option C — Manual IP + Code (most reliable)**
+
+If QR or scan fails (some routers / Android builds), use the direct pairing flow:
+
+| Step | Action |
+|:----:|:-------|
+| 1 | Phone → **Settings → Developer Options → Wireless debugging → Pair device with pairing code** |
+| 2 | Note the **IP address & port** + **6-digit code** shown |
+| 3 | DroidScreen → click **Pair Manually** → enter IP:port and code |
+| 4 | Done — device auto-appears in the list |
+
+> 💡 _Same Wi-Fi network required. mDNS doesn't cross subnets. Phone hotspot may block client-to-host TLS pairing._
 
 ### 🔌 USB
 
@@ -273,6 +284,8 @@ src/
 - The pairing code expires fast — enter it within ~30 seconds
 - The pairing port changes every time you toggle Wireless Debugging — re-scan
 - Make sure no other tool (Android Studio, Vysor) is holding the adb server
+- `protocol fault (couldn't read status message)` from `adb pair` → toggle Wireless Debugging off/on on the phone, then `adb kill-server && adb start-server` and retry
+- Phone hotspot can block client-to-host TLS — use a shared Wi-Fi router instead
 </details>
 
 <details>

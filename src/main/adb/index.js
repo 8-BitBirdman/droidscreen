@@ -2,7 +2,9 @@ import adb from 'adbkit'
 const { execFile } = require('child_process')
 const fixPath = require('fix-path')
 fixPath()
-const client = adb.createClient()
+// Force IPv4 — adbkit defaults to 'localhost' which can resolve to ::1 on macOS
+// where the adb server only listens on 127.0.0.1:5037
+const client = adb.createClient({ host: '127.0.0.1', port: 5037 })
 const debug = require('debug')('scrcpy')
 
 let _tracker = null
