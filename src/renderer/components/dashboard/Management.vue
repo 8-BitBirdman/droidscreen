@@ -25,6 +25,14 @@
 				>
 					{{ $t('quickConnect.qrButton') }}
 				</el-button>
+
+				<el-button
+					@click="openManualPairDialog"
+					size="small"
+					round
+				>
+					{{ $t('quickConnect.manualPairButton') }}
+				</el-button>
 			</div>
 
 			<div v-if="scanned && mdnsDevices.length === 0" class="qc-empty">
@@ -111,6 +119,40 @@
 			</p>
 			<span slot="footer">
 				<el-button @click="qrDialogVisible = false">{{ $t('quickConnect.pairDialog.cancel') }}</el-button>
+			</span>
+		</el-dialog>
+
+		<!-- ───────────────── MANUAL PAIR DIALOG (IP:port + code) ───────────────── -->
+		<el-dialog
+			:title="$t('quickConnect.manualPairDialog.title')"
+			:visible.sync="manualPairDialogVisible"
+			width="380px"
+			class="pair-dialog"
+			:append-to-body="true"
+		>
+			<p class="pair-hint">{{ $t('quickConnect.manualPairDialog.hint') }}</p>
+			<el-input
+				v-model="manualPairAddr"
+				:placeholder="$t('quickConnect.manualPairDialog.addrPlaceholder')"
+				size="medium"
+				autofocus
+				style="margin-bottom: 10px"
+			/>
+			<el-input
+				v-model="manualPairCode"
+				:placeholder="$t('quickConnect.manualPairDialog.codePlaceholder')"
+				maxlength="6"
+				size="medium"
+				@keyup.enter.native="submitManualPair"
+			/>
+			<span slot="footer">
+				<el-button @click="manualPairDialogVisible = false">{{ $t('quickConnect.pairDialog.cancel') }}</el-button>
+				<el-button
+					type="primary"
+					:loading="manualPairing"
+					:disabled="!manualPairAddr || manualPairCode.length < 6"
+					@click="submitManualPair"
+				>{{ $t('quickConnect.pairDialog.confirm') }}</el-button>
 			</span>
 		</el-dialog>
 
@@ -285,7 +327,12 @@ export default {
 			qrDialogVisible: false,
 			qrWaiting: false,
 			qrService: '',
-			qrPassword: ''
+			qrPassword: '',
+			// Manual pair (IP:port + code)
+			manualPairDialogVisible: false,
+			manualPairAddr: '',
+			manualPairCode: '',
+			manualPairing: false
 		}
 	},
 	created() {
@@ -367,6 +414,7 @@ export default {
 
 		ipcRenderer.on('pair', (_, { success }) => {
 			this.pairing = false
+			this.manualPairing = false
 			if (success) {
 				this.$notify.success(this.$t('quickConnect.pairSuccess'))
 				if (this.pendingPairDevice) {
@@ -383,6 +431,13 @@ export default {
 				}
 				this.pairDialogVisible = false
 				this.pairingCode = ''
+				if (this.manualPairDialogVisible) {
+					this.manualPairDialogVisible = false
+					this.manualPairAddr = ''
+					this.manualPairCode = ''
+					// Trigger rescan to pick up the new device
+					setTimeout(() => this.scanDevices(), 800)
+				}
 			} else {
 				this.$notify.error(this.$t('quickConnect.pairFail'))
 			}
@@ -506,6 +561,19 @@ export default {
 		closeQrDialog() {
 			this.qrWaiting = false
 			ipcRenderer.send('qrPairStop')
+		},
+		openManualPairDialog() {
+			this.manualPairAddr = ''
+			this.manualPairCode = ''
+			this.manualPairDialogVisible = true
+		},
+		submitManualPair() {
+			if (!this.manualPairAddr || this.manualPairCode.length < 6) return
+			this.manualPairing = true
+			ipcRenderer.send('pair', {
+				addr: this.manualPairAddr.trim(),
+				code: this.manualPairCode
+			})
 		},
 		getWirelessDevices(queryString, cb) {
 			const wirelessDevices = this.wirelessDevices

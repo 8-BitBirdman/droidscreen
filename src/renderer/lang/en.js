@@ -181,6 +181,13 @@ export default {
 			hint: 'On your phone: Wireless Debugging → Pair device with QR code. Then point your camera at the code below.',
 			waiting: 'Waiting for phone to scan...'
 		},
+		manualPairButton: 'Pair Manually',
+		manualPairDialog: {
+			title: 'Pair with IP and Code',
+			hint: 'On your phone: Wireless Debugging → Pair device with pairing code. Enter the IP:port and 6-digit code shown.',
+			addrPlaceholder: '192.168.1.100:43210',
+			codePlaceholder: '6-digit code'
+		},
 		pairSuccess: 'Device paired! Connecting...',
 		pairFail: 'Pairing failed. Check the code and try again.',
 		connectSuccess: 'Connected! Device is now available.',
