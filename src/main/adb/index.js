@@ -132,11 +132,13 @@ const connectDirect = ({ sender }, { addr }) => {
 	})
 }
 
-// QR pairing: poll `adb mdns services` for our service name, then pair with password
-let _qrPoll = null
+// QR pairing: watch mDNS via dns-sd (macOS Bonjour) for our service name, then pair.
+// `adb mdns services` is broken on recent macOS, so we use the OS-native discovery directly.
+const { spawn } = require('child_process')
+let _qrBrowser = null
+let _qrTimer = null
 let _qrAbort = { v: false }
 const QR_TIMEOUT_MS = 120000
-const QR_INTERVAL_MS = 1500
 const SERVICE_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 const safeSend = (sender, channel, payload) => {
@@ -144,6 +146,42 @@ const safeSend = (sender, channel, payload) => {
 		if (sender && !sender.isDestroyed()) sender.send(channel, payload)
 	} catch (_) { /* sender gone */ }
 }
+
+// Resolve "Android_XYZ.local." → IPv4 via dns-sd -G
+const resolveHost = (hostname) => new Promise((resolve) => {
+	const proc = spawn('dns-sd', ['-G', 'v4', hostname])
+	let done = false
+	const finish = (ip) => {
+		if (done) return
+		done = true
+		try { proc.kill('SIGTERM') } catch (_) {}
+		resolve(ip)
+	}
+	proc.stdout.on('data', (buf) => {
+		const m = buf.toString().match(/\s(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s/)
+		if (m) finish(m[1])
+	})
+	proc.on('error', () => finish(null))
+	setTimeout(() => finish(null), 4000)
+})
+
+// Resolve instance → hostname:port via dns-sd -L
+const resolveService = (instance) => new Promise((resolve) => {
+	const proc = spawn('dns-sd', ['-L', instance, '_adb-tls-pairing._tcp', 'local.'])
+	let done = false
+	const finish = (hp) => {
+		if (done) return
+		done = true
+		try { proc.kill('SIGTERM') } catch (_) {}
+		resolve(hp)
+	}
+	proc.stdout.on('data', (buf) => {
+		const m = buf.toString().match(/can be reached at\s+(\S+):(\d{1,5})/)
+		if (m) finish({ host: m[1].replace(/\.$/, ''), port: m[2] })
+	})
+	proc.on('error', () => finish(null))
+	setTimeout(() => finish(null), 4000)
+})
 
 const qrPairStart = ({ sender }, { service, password }) => {
 	if (!SERVICE_RE.test(service) || typeof password !== 'string' || password.length < 6 || password.length > 32) {
@@ -153,57 +191,63 @@ const qrPairStart = ({ sender }, { service, password }) => {
 	qrPairStop()
 	const abort = { v: false }
 	_qrAbort = abort
-	let ticking = false
 	let pairing = false
-	const started = Date.now()
-	const tick = () => {
-		if (abort.v || ticking || pairing) return
-		ticking = true
-		execFile('adb', ['mdns', 'services'], (err, stdout) => {
-			ticking = false
+	const seen = new Set()
+
+	const tryPair = async (instance) => {
+		if (abort.v || pairing) return
+		if (!instance.includes(service)) return
+		if (seen.has(instance)) return
+		seen.add(instance)
+		pairing = true
+		debug('QR: matched instance %s, resolving', instance)
+		const svc = await resolveService(instance)
+		if (abort.v) { pairing = false; return }
+		if (!svc) { pairing = false; return }
+		const ip = await resolveHost(svc.host)
+		if (abort.v) { pairing = false; return }
+		if (!ip) { pairing = false; return }
+		const addr = `${ip}:${svc.port}`
+		debug('QR: pairing to %s', addr)
+		qrPairStop()
+		execFile('adb', ['pair', addr, password], (e, so, se) => {
+			pairing = false
 			if (abort.v) return
-			if (err) {
-				if (Date.now() - started > QR_TIMEOUT_MS) {
-					qrPairStop()
-					safeSend(sender, 'qrPair', { success: false, message: 'Timeout: no device scanned the QR code' })
-				}
-				return
-			}
-			const lines = stdout.split('\n').filter(l => l.includes('_adb-tls-pairing'))
-			for (const line of lines) {
-				const parts = line.trim().split(/\s+/)
-				if (parts.length < 3) continue
-				const instanceName = parts[0]
-				const addr = parts[parts.length - 1]
-				if (instanceName.includes(service)) {
-					if (!ADDR_RE.test(addr)) continue
-					pairing = true
-					qrPairStop()
-					execFile('adb', ['pair', addr, password], (e, so, se) => {
-						pairing = false
-						if (abort.v) return
-						const out = (so + se).toLowerCase()
-						const ok = !e && !out.includes('failed') && !out.includes('error')
-						safeSend(sender, 'qrPair', { success: ok, message: ok ? 'Paired' : 'Pair failed' })
-					})
-					return
-				}
-			}
-			if (Date.now() - started > QR_TIMEOUT_MS) {
-				qrPairStop()
-				safeSend(sender, 'qrPair', { success: false, message: 'Timeout: no device scanned the QR code' })
-			}
+			const out = (so + se).toLowerCase()
+			const ok = !e && !out.includes('failed') && !out.includes('error')
+			safeSend(sender, 'qrPair', { success: ok, message: ok ? 'Paired' : 'Pair failed' })
 		})
 	}
-	_qrPoll = setInterval(tick, QR_INTERVAL_MS)
-	tick()
+
+	_qrBrowser = spawn('dns-sd', ['-B', '_adb-tls-pairing._tcp', 'local.'])
+	_qrBrowser.stdout.on('data', (buf) => {
+		if (abort.v) return
+		const text = buf.toString()
+		// Each "Add" line ends with the instance name
+		text.split('\n').forEach(line => {
+			const m = line.match(/\bAdd\b.*?\s(\S+)\s*$/)
+			if (m) tryPair(m[1].trim())
+		})
+	})
+	_qrBrowser.on('error', (err) => {
+		debug('QR: dns-sd error %s', err.message)
+		qrPairStop()
+		safeSend(sender, 'qrPair', { success: false, message: 'mDNS discovery failed (is dns-sd available?)' })
+	})
+
+	_qrTimer = setTimeout(() => {
+		if (abort.v || pairing) return
+		qrPairStop()
+		safeSend(sender, 'qrPair', { success: false, message: 'Timeout: no device scanned the QR code' })
+	}, QR_TIMEOUT_MS)
 }
 
 const qrPairStop = () => {
 	if (_qrAbort) _qrAbort.v = true
-	if (_qrPoll) {
-		clearInterval(_qrPoll)
-		_qrPoll = null
+	if (_qrTimer) { clearTimeout(_qrTimer); _qrTimer = null }
+	if (_qrBrowser) {
+		try { _qrBrowser.kill('SIGTERM') } catch (_) {}
+		_qrBrowser = null
 	}
 }
 
